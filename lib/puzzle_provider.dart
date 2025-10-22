@@ -8,25 +8,24 @@ class PuzzleNotifier extends StateNotifier<List<int>> {
 
   // 新しいセルを追加
   void addCell(int cellIndex) {
-    // 既に追加されている場合は無視
+    // 重複チェック
     if (state.contains(cellIndex)) {
       return;
     }
 
-    // リストが空の場合は、スタート（0）から始まることを確認
+    // 最初は必ずセル0から開始
     if (state.isEmpty && cellIndex != 0) {
       return;
     }
 
-    // リストに要素がある場合、隣接するセルかチェック
+    // 隣接チェック
     if (state.isNotEmpty) {
-      final lastCell = state.last;
+      int lastCell = state.last;
       if (!_isAdjacent(lastCell, cellIndex)) {
         return;
       }
     }
 
-    // セルを追加して軽い振動を発生
     state = [...state, cellIndex];
     HapticFeedback.lightImpact();
   }
