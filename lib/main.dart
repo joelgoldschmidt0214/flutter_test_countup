@@ -29,7 +29,7 @@ class MyHomePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tracedCells = ref.watch(puzzleProvider);
+    final puzzleState = ref.watch(puzzleProvider);
     final notifier = ref.read(puzzleProvider.notifier);
 
     return Scaffold(
@@ -48,7 +48,7 @@ class MyHomePage extends ConsumerWidget {
             padding: const EdgeInsets.only(right: 16.0),
             child: Center(
               child: Text(
-                '${tracedCells.length}/25',
+                '${puzzleState.tracedCells.length}/25',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -69,8 +69,9 @@ class PuzzleBoard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tracedCells = ref.watch(puzzleProvider);
+    final puzzleState = ref.watch(puzzleProvider);
     final notifier = ref.read(puzzleProvider.notifier);
+    final tracedCells = puzzleState.tracedCells;
 
     return Column(
       children: [
@@ -109,6 +110,7 @@ class PuzzleBoard extends ConsumerWidget {
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onPanStart: (details) {
+                        notifier.addTouchPoint(details.localPosition);
                         _handleTouch(
                           details.localPosition,
                           constraints,
@@ -116,6 +118,7 @@ class PuzzleBoard extends ConsumerWidget {
                         );
                       },
                       onPanUpdate: (details) {
+                        notifier.addTouchPoint(details.localPosition);
                         _handleTouch(
                           details.localPosition,
                           constraints,
@@ -143,46 +146,51 @@ class PuzzleBoard extends ConsumerWidget {
                                 final isStart = index == 0;
                                 final isGoal = index == 24;
 
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    color: isTraced
-                                        ? Colors.blue.shade100
-                                        : (isStart
-                                              ? Colors.green.shade100
-                                              : (isGoal
-                                                    ? Colors.red.shade100
-                                                    : Colors.grey.shade200)),
-                                    border: Border.all(
-                                      color: isStart
-                                          ? Colors.green
-                                          : (isGoal
-                                                ? Colors.red
-                                                : Colors.black),
-                                      width: isStart || isGoal ? 3 : 1,
+                                return AnimatedScale(
+                                  scale: isTraced ? 0.85 : 1.0,
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeOut,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: isTraced
+                                          ? Colors.blue.shade100
+                                          : (isStart
+                                                ? Colors.green.shade100
+                                                : (isGoal
+                                                      ? Colors.red.shade100
+                                                      : Colors.grey.shade200)),
+                                      border: Border.all(
+                                        color: isStart
+                                            ? Colors.green
+                                            : (isGoal
+                                                  ? Colors.red
+                                                  : Colors.black),
+                                        width: isStart || isGoal ? 3 : 1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Center(
-                                    child: isStart
-                                        ? const Icon(
-                                            Icons.flag,
-                                            color: Colors.green,
-                                          )
-                                        : (isGoal
-                                              ? const Icon(
-                                                  Icons.flag_outlined,
-                                                  color: Colors.red,
-                                                )
-                                              : null),
+                                    child: Center(
+                                      child: isStart
+                                          ? const Icon(
+                                              Icons.flag,
+                                              color: Colors.green,
+                                            )
+                                          : (isGoal
+                                                ? const Icon(
+                                                    Icons.flag_outlined,
+                                                    color: Colors.red,
+                                                  )
+                                                : null),
+                                    ),
                                   ),
                                 );
                               },
                             ),
                           ),
                           // パスの描画
-                          if (tracedCells.length > 1)
+                          if (puzzleState.touchPath.length > 1)
                             CustomPaint(
-                              painter: PathPainter(tracedCells),
+                              painter: PathPainter(puzzleState.touchPath),
                               size: Size.infinite,
                             ),
                         ],
@@ -253,19 +261,15 @@ class PuzzleBoard extends ConsumerWidget {
   }
 }
 
-// パスを描画するCustomPainter
+// パスを描画するCustomPainter（実際の指の軌跡を滑らかに描画）
 class PathPainter extends CustomPainter {
-  final List<int> tracedCells;
+  final List<Offset> touchPath;
 
-  PathPainter(this.tracedCells);
+  PathPainter(this.touchPath);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (tracedCells.length < 2) return;
-
-    // セルのサイズを計算（スペーシングを考慮）
-    const spacing = 4.0;
-    final cellSize = (size.width - spacing * 4) / 5;
+    if (touchPath.length < 2) return;
 
     // ペイントの設定
     final paint = Paint()
@@ -284,29 +288,40 @@ class PathPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
 
-    // セルインデックスから中心座標を計算
-    Offset getCellCenter(int index) {
-      final row = index ~/ 5;
-      final col = index % 5;
-      final x = col * (cellSize + spacing) + cellSize / 2;
-      final y = row * (cellSize + spacing) + cellSize / 2;
-      return Offset(x, y);
-    }
-
-    // パスを作成
+    // 滑らかな曲線を作成（Catmull-Rom スプライン）
     final path = Path();
     final shadowPath = Path();
 
     // 最初の点に移動
-    final firstPoint = getCellCenter(tracedCells[0]);
-    path.moveTo(firstPoint.dx, firstPoint.dy);
-    shadowPath.moveTo(firstPoint.dx, firstPoint.dy);
+    path.moveTo(touchPath[0].dx, touchPath[0].dy);
+    shadowPath.moveTo(touchPath[0].dx, touchPath[0].dy);
 
-    // すべてのポイントを直線で接続
-    for (int i = 1; i < tracedCells.length; i++) {
-      final currentPoint = getCellCenter(tracedCells[i]);
-      path.lineTo(currentPoint.dx, currentPoint.dy);
-      shadowPath.lineTo(currentPoint.dx, currentPoint.dy);
+    // ポイントが少ない場合は直線で接続
+    if (touchPath.length == 2) {
+      path.lineTo(touchPath[1].dx, touchPath[1].dy);
+      shadowPath.lineTo(touchPath[1].dx, touchPath[1].dy);
+    } else {
+      // 滑らかな曲線を描画
+      for (int i = 0; i < touchPath.length - 1; i++) {
+        final p0 = touchPath[i];
+        final p1 = touchPath[i + 1];
+
+        // 2次ベジェ曲線で滑らかに接続
+        final controlPoint = Offset((p0.dx + p1.dx) / 2, (p0.dy + p1.dy) / 2);
+
+        path.quadraticBezierTo(p0.dx, p0.dy, controlPoint.dx, controlPoint.dy);
+        shadowPath.quadraticBezierTo(
+          p0.dx,
+          p0.dy,
+          controlPoint.dx,
+          controlPoint.dy,
+        );
+      }
+
+      // 最後の点まで描画
+      final lastPoint = touchPath.last;
+      path.lineTo(lastPoint.dx, lastPoint.dy);
+      shadowPath.lineTo(lastPoint.dx, lastPoint.dy);
     }
 
     // 影を描画
@@ -315,19 +330,15 @@ class PathPainter extends CustomPainter {
     // パスを描画
     canvas.drawPath(path, paint);
 
-    // 各セルの中心に丸を描画
+    // スタート地点に丸を描画
     final dotPaint = Paint()
       ..color = Colors.blue.shade700
       ..style = PaintingStyle.fill;
-
-    for (final cellIndex in tracedCells) {
-      final center = getCellCenter(cellIndex);
-      canvas.drawCircle(center, 4, dotPaint);
-    }
+    canvas.drawCircle(touchPath.first, 5, dotPaint);
   }
 
   @override
   bool shouldRepaint(PathPainter oldDelegate) {
-    return oldDelegate.tracedCells.length != tracedCells.length;
+    return oldDelegate.touchPath.length != touchPath.length;
   }
 }

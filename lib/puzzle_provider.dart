@@ -2,31 +2,51 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+// パズルの状態
+class PuzzleState {
+  final List<int> tracedCells;
+  final List<Offset> touchPath;
+
+  const PuzzleState({this.tracedCells = const [], this.touchPath = const []});
+
+  PuzzleState copyWith({List<int>? tracedCells, List<Offset>? touchPath}) {
+    return PuzzleState(
+      tracedCells: tracedCells ?? this.tracedCells,
+      touchPath: touchPath ?? this.touchPath,
+    );
+  }
+}
+
 // パズルの状態を管理するNotifier
-class PuzzleNotifier extends StateNotifier<List<int>> {
-  PuzzleNotifier() : super([]);
+class PuzzleNotifier extends StateNotifier<PuzzleState> {
+  PuzzleNotifier() : super(const PuzzleState());
+
+  // タッチ位置を記録
+  void addTouchPoint(Offset point) {
+    state = state.copyWith(touchPath: [...state.touchPath, point]);
+  }
 
   // 新しいセルを追加
   void addCell(int cellIndex) {
     // 重複チェック
-    if (state.contains(cellIndex)) {
+    if (state.tracedCells.contains(cellIndex)) {
       return;
     }
 
     // 最初は必ずセル0から開始
-    if (state.isEmpty && cellIndex != 0) {
+    if (state.tracedCells.isEmpty && cellIndex != 0) {
       return;
     }
 
     // 隣接チェック
-    if (state.isNotEmpty) {
-      int lastCell = state.last;
+    if (state.tracedCells.isNotEmpty) {
+      int lastCell = state.tracedCells.last;
       if (!_isAdjacent(lastCell, cellIndex)) {
         return;
       }
     }
 
-    state = [...state, cellIndex];
+    state = state.copyWith(tracedCells: [...state.tracedCells, cellIndex]);
     HapticFeedback.lightImpact();
   }
 
@@ -45,7 +65,7 @@ class PuzzleNotifier extends StateNotifier<List<int>> {
   // クリア判定と行き詰まり判定
   void checkClear(BuildContext context) {
     // すべてのセル（25個）がなぞられ、最後がゴール（24）である
-    if (state.length == 25 && state.last == 24) {
+    if (state.tracedCells.length == 25 && state.tracedCells.last == 24) {
       // クリア演出
       HapticFeedback.heavyImpact();
       showDialog(
@@ -71,7 +91,7 @@ class PuzzleNotifier extends StateNotifier<List<int>> {
           ],
         ),
       );
-    } else if (state.isNotEmpty && _isStuck()) {
+    } else if (state.tracedCells.isNotEmpty && _isStuck()) {
       // 行き詰まった場合
       HapticFeedback.mediumImpact();
       showDialog(
@@ -85,7 +105,9 @@ class PuzzleNotifier extends StateNotifier<List<int>> {
               Text('行き詰まりました'),
             ],
           ),
-          content: Text('これ以上進めません。\nまだ25個中 ${25 - state.length}個のマスが残っています。'),
+          content: Text(
+            'これ以上進めません。\nまだ25個中 ${25 - state.tracedCells.length}個のマスが残っています。',
+          ),
           actions: [
             TextButton(
               onPressed: () {
@@ -102,9 +124,9 @@ class PuzzleNotifier extends StateNotifier<List<int>> {
 
   // 行き詰まったかどうかをチェック
   bool _isStuck() {
-    if (state.isEmpty) return false;
+    if (state.tracedCells.isEmpty) return false;
 
-    final lastCell = state.last;
+    final lastCell = state.tracedCells.last;
     final row = lastCell ~/ 5;
     final col = lastCell % 5;
 
@@ -121,16 +143,18 @@ class PuzzleNotifier extends StateNotifier<List<int>> {
     if (col < 4) adjacentCells.add(row * 5 + (col + 1));
 
     // すべての隣接セルが既になぞられている場合、行き詰まり
-    return adjacentCells.every((cell) => state.contains(cell));
+    return adjacentCells.every((cell) => state.tracedCells.contains(cell));
   }
 
   // リセット
   void reset() {
-    state = [];
+    state = const PuzzleState();
   }
 }
 
 // Providerの定義
-final puzzleProvider = StateNotifierProvider<PuzzleNotifier, List<int>>((ref) {
+final puzzleProvider = StateNotifierProvider<PuzzleNotifier, PuzzleState>((
+  ref,
+) {
   return PuzzleNotifier();
 });
